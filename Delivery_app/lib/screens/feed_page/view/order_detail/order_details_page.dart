@@ -1,0 +1,1072 @@
+// ignore_for_file: unused_element, use_build_context_synchronously
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:confetti/confetti.dart';
+import 'package:hyper_local/utils/extensions.dart';
+import 'package:hyper_local/utils/widgets/empty_state_widget.dart';
+import '../../../../config/colors.dart';
+import '../../../../config/helper.dart';
+import '../../../../utils/currency_formatter.dart';
+import '../../../../utils/widgets/custom_text.dart';
+import '../../../../utils/widgets/custom_appbar_without_navbar.dart';
+import '../../../../utils/widgets/custom_scaffold.dart';
+import '../../../../utils/widgets/loading_widget.dart';
+import '../../../../utils/widgets/toast_message.dart';
+import '../../../system_settings/bloc/system_settings_bloc.dart';
+import '../../../system_settings/bloc/system_settings_event.dart';
+import '../../../system_settings/bloc/system_settings_state.dart';
+import '../../model/available_orders.dart';
+import '../../bloc/items_collected_bloc/items_collected_bloc.dart';
+import '../../bloc/items_collected_bloc/items_collected_event.dart';
+import '../../bloc/items_collected_bloc/items_collected_state.dart';
+import '../../bloc/order_details_bloc/order_details_bloc.dart';
+import '../../bloc/order_details_bloc/order_details_event.dart';
+import '../../bloc/order_details_bloc/order_details_state.dart';
+import '../../bloc/available_orders_bloc/available_orders_bloc.dart';
+import '../../bloc/available_orders_bloc/available_orders_event.dart';
+import '../../bloc/my_orders_bloc/my_orders_bloc.dart';
+import '../../bloc/my_orders_bloc/my_orders_event.dart';
+import '../../../../utils/widgets/custom_button.dart';
+import '../../../../utils/widgets/reusable_bottom_sheet.dart';
+import '../../widgets/orderdetails_widgets/index.dart';
+import '../../../../router/app_routes.dart';
+import 'package:hyper_local/l10n/app_localizations.dart';
+import 'widgets/index.dart' as new_widgets;
+import '../../services/order_service.dart';
+import '../../services/dialog_service.dart';
+import '../../../../utils/services/phone_service.dart';
+import '../../../../utils/services/ui_helper_service.dart';
+import '../../services/item_card_service.dart';
+
+class OrderDetailsPage extends StatefulWidget {
+  final int orderId;
+  final bool from;
+  final int? sourceTab; // 0 = Available Orders, 1 = My Orders
+  final bool? arrivalConfirmed; // Whether arrival has been confirmed
+
+  const OrderDetailsPage({
+    super.key,
+    required this.orderId,
+    this.from = false,
+    this.sourceTab,
+    this.arrivalConfirmed,
+  });
+
+  @override
+  State<OrderDetailsPage> createState() => _OrderDetailsPageState();
+}
+
+class _OrderDetailsPageState extends State<OrderDetailsPage>
+    with TickerProviderStateMixin {
+  Orders? _fetchedOrder;
+
+  // Local state sets for tracking item status
+  final Set<String> _collectedItems = {};
+  final Set<String> _deliveredItems = {};
+  final Set<String> _otpVerifiedItems = {};
+
+  // UI state variables
+  bool _isItemsExpanded = true;
+  bool _isDeliveryExpanded = false;
+  bool _isStoreDetailsExpanded = false;
+  bool _isPaymentExpanded = false;
+  bool _isEarningsExpanded = false;
+  bool _isPricingExpanded = false;
+  bool _codPopupShown = false;
+  final Set<String> _processingItemIds = {};
+  bool _isCollectingAll = false;
+  bool _isApiFailed = false;
+
+  // Confetti controller for celebration animation
+  late ConfettiController _confettiController;
+
+  // Track if confetti has been shown for this order
+  bool _hasShownConfetti = false;
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'out_for_delivery':
+        return Colors.orange;
+      case 'assigned':
+        return Colors.blue;
+      case 'preparing':
+        return Colors.purple;
+      case 'ready':
+        return Colors.green;
+      case 'delivered':
+        return Colors.grey;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getDisplayStatus(String status) {
+    // Check if all items are delivered with verified OTP
+
+    // If status is delivered and OTP is verified, don't show pending
+    if (status.toLowerCase() == 'delivered') {
+      return 'delivered';
+    }
+
+    // If status is pending and no items require OTP, show as collected
+    if (status.toLowerCase() == 'pending') {
+      return 'collected'; // Show as collected instead of pending
+    }
+
+    return status;
+  }
+
+  bool _areAllItemsDeliveredWithOtp() {
+    final order = _fetchedOrder;
+    if (order?.items == null || order!.items!.isEmpty) return false;
+
+    for (var item in order.items!) {
+      if (item.status?.toLowerCase() != 'delivered' || item.otpVerified != 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _areAllItemsDelivered() {
+    return OrderService.areAllItemsDelivered(_fetchedOrder);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _confettiController = ConfettiController(
+      duration: const Duration(seconds: 3),
+    );
+
+    // Reset confetti flag for new order
+    _hasShownConfetti = false;
+
+    // Initialize arrival confirmation status from widget parameter
+
+    // Fetch system system_settings for currency symbol
+
+    context.read<SystemSettingsBloc>().add(FetchSystemSettings());
+
+    // Fetch order details from API
+    context.read<OrderDetailsBloc>().add(FetchOrderDetails(widget.orderId));
+
+    // Remove the post-frame callback that was causing state conflicts
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+
+    //   _initializeLocalStateFromApi();
+    // });
+  }
+
+  @override
+  void dispose() {
+    _confettiController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // This method is called when the widget's dependencies change
+    // It's a good place to refresh data when navigating back to this page
+
+    // Only refresh if we don't have order data
+    // Don't refresh if we already have the latest state to preserve bloc updates
+    if (_fetchedOrder == null) {
+      _refreshOrderDataIfNeeded();
+    } else {}
+  }
+
+  // Method to refresh order data when needed (e.g., when navigating back)
+  void _refreshOrderDataIfNeeded() {
+    // Only refresh if we have an order and it's been a while since last refresh
+    if (_fetchedOrder != null) {
+      context.read<OrderDetailsBloc>().add(FetchOrderDetails(widget.orderId));
+    }
+  }
+
+  // Method to manually refresh order data
+  void _refreshOrderData() {
+    // Check if current bloc state has reachedDestination items that we need to preserve
+    final currentState = context.read<OrderDetailsBloc>().state;
+    Map<String, bool> reachedDestinationItems = {};
+
+    if (currentState.status == ApiStatus.success &&
+        currentState.order != null) {
+      // Preserve reachedDestination status from current bloc state
+      for (var item in currentState.order!.items ?? []) {
+        if (item.reachedDestination == true) {
+          reachedDestinationItems[item.id.toString()] = true;
+        }
+      }
+    }
+
+    // Clear local state first
+    setState(() {
+      _deliveredItems.clear();
+      _otpVerifiedItems.clear();
+      _collectedItems.clear();
+    });
+
+    // Fetch fresh data from API
+    context.read<OrderDetailsBloc>().add(FetchOrderDetails(widget.orderId));
+
+    // After API response, restore reachedDestination status
+    if (reachedDestinationItems.isNotEmpty) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<SystemSettingsBloc, SystemSettingsState>(
+      listener: (context, state) {
+        if (state.fetchStatus == ApiStatus.success) {
+          // Trigger a rebuild to update currency symbols
+          setState(() {});
+        }
+      },
+      child: BlocConsumer<ItemsCollectedBloc, ItemsCollectedState>(
+        listener: (context, state) {
+          if (state.status == ApiStatus.success) {
+            String processedItemId = state.itemId;
+
+            setState(() {
+              _processingItemIds.remove(processedItemId);
+
+              // Always add to collected items to hide security icon for OTP items
+              _collectedItems.add(processedItemId);
+
+              // Add to delivered items if this is delivery mode and order status is not assigned
+              // OR if order status is "out_for_delivery"
+              if ((widget.from &&
+                      _fetchedOrder?.status?.toLowerCase() != 'assigned') ||
+                  _fetchedOrder?.status?.toLowerCase() == 'out_for_delivery') {
+                _deliveredItems.add(processedItemId);
+              }
+
+              // Update the local order data immediately for this item
+              if (_fetchedOrder?.items != null) {
+                List<Items> updatedItems =
+                    _fetchedOrder!.items!.map((item) {
+                      if (item.id.toString() == processedItemId) {
+                        String newStatus =
+                            state.isDelivery ? 'delivered' : 'collected';
+                        return item.copyWith(status: newStatus);
+                      }
+                      return item;
+                    }).toList();
+
+                _fetchedOrder = _fetchedOrder!.copyWith(items: updatedItems);
+              }
+
+              // If this was the last item in "collect all", reset the flag
+              if (_isCollectingAll && _areAllItemsCollected()) {
+                _isCollectingAll = false;
+              }
+            });
+
+            // Dispatch FetchOrderDetails as backup
+            context.read<OrderDetailsBloc>().add(
+              FetchOrderDetails(widget.orderId),
+            );
+
+            // Show toast
+            String successMessage =
+                state.isDelivery
+                    ? AppLocalizations.of(context)!.itemDeliveredSuccessfully
+                    : AppLocalizations.of(context)!.itemCollectedSuccessfully;
+
+            // Only show individual toasts if not collecting all, or show one consolidated one later
+            if (!_isCollectingAll) {
+              ToastManager.show(
+                context: context,
+                message: successMessage,
+                type: ToastType.success,
+              );
+            }
+          } else if (state.status == ApiStatus.failed) {
+            setState(() {
+              _processingItemIds.remove(state.itemId);
+              if (_isCollectingAll && _processingItemIds.isEmpty) {
+                _isCollectingAll = false;
+              }
+            });
+
+            ToastManager.show(
+              context: context,
+              message: state.message,
+              type: ToastType.error,
+            );
+          }
+        },
+        builder: (context, itemsCollectedState) {
+          return BlocConsumer<OrderDetailsBloc, OrderDetailsState>(
+            listener: (context, state) {
+              if (state.status == ApiStatus.success && state.order != null) {
+                // Check if we need to restore reachedDestination status from previous state
+                setState(() {
+                  _isApiFailed = false;
+                  _fetchedOrder = state.order;
+
+                  // Reset confetti flag for new order data
+                  if (_fetchedOrder?.id != widget.orderId) {
+                    _hasShownConfetti = false;
+                  }
+
+                  // Update local state based on API response
+                  if (_fetchedOrder?.items != null) {
+                    for (var item in _fetchedOrder!.items!) {
+                      // Update local state based on API status
+                      if (item.id != null) {
+                        String itemId = item.id.toString();
+
+                        // If item is delivered according to API, add to delivered items
+                        if (item.status?.toLowerCase() == 'delivered') {
+                          _deliveredItems.add(itemId);
+                        }
+
+                        // If item is collected according to API, add to collected items
+                        if (item.status?.toLowerCase() == 'collected' ||
+                            item.status?.toLowerCase() == 'delivered') {
+                          _collectedItems.add(itemId);
+                        }
+
+                        // If item has OTP verified according to API, add to OTP verified items
+                        if (item.otpVerified == 1) {
+                          _otpVerifiedItems.add(itemId);
+                        }
+                      }
+                    }
+                  }
+                });
+              } else if (state.status == ApiStatus.failed) {
+                setState(() {
+                  _isApiFailed = true;
+                });
+              }
+            },
+            builder: (context, state) {
+              // Use fetched order data with restored reachedDestination values
+              final order = _fetchedOrder;
+
+              if (order == null) {
+                return CustomScaffold(
+                  appBar: CustomAppBarWithoutNavbar(
+                    title: AppLocalizations.of(context)!.orderDetails,
+                    showRefreshButton: true,
+                    showThemeToggle: false,
+                    onRefreshPressed: () {
+                      // Only refresh if we don't have order data or if it's stale
+                      // Don't refresh if we already have the latest state to preserve bloc updates
+                      if (_fetchedOrder == null) {
+                        _refreshOrderData();
+                      } else {
+                        // Show a message that data is already up to date
+                        ToastManager.show(
+                          context: context,
+                          message: 'Order data is already up to date',
+                          type: ToastType.info,
+                        );
+                      }
+                    },
+                    // additionalActions: [
+                    //   IconButton(
+                    //     icon: Icon(
+                    //       Icons.map,
+                    //       color: Theme.of(context).colorScheme.onSurface,
+                    //       size: sz(24, seprateTabletSize: 18).sp,
+                    //     ),
+                    //     onPressed: () {
+                    //       context.push(AppRoutes.pickupRouteMap, extra: {'order': order});
+                    //     },
+                    //     tooltip: AppLocalizations.of(context)!.goToMap,
+                    //   ),
+                    //   order?.status == "out_for_delivery"
+                    //       ? IconButton(
+                    //         icon: Icon(
+                    //           Icons.call,
+                    //           color: Theme.of(context).colorScheme.onSurface,
+                    //           size: sz(24, seprateTabletSize: 18).sp,
+                    //         ),
+                    //         onPressed: () => _makePhoneCall('${order?.shippingPhonecode ?? ''}${order?.shippingPhone ?? ''}'),
+                    //         tooltip: AppLocalizations.of(context)!.call,
+                    //       )
+                    //       : const SizedBox.shrink(),
+                    // ],
+                  ),
+                  body: Center(
+                    child:
+                        _isApiFailed
+                            ? ErrorStateWidget(
+                              onRetry: () {
+                                context.read<OrderDetailsBloc>().add(
+                                  FetchOrderDetails(widget.orderId),
+                                );
+                              },
+                            )
+                            : const LoadingWidget(),
+                  ),
+                );
+              }
+
+              return CustomScaffold(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                appBar: CustomAppBarWithoutNavbar(
+                  title: AppLocalizations.of(context)!.orderDetails,
+                  showRefreshButton: true,
+                  showThemeToggle: false,
+                  onRefreshPressed: () {
+                    // Only refresh if we don't have order data or if it's stale
+                    // Don't refresh if we already have the latest state to preserve bloc updates
+                    if (_fetchedOrder == null) {
+                      _refreshOrderData();
+                    } else {
+                      // Show a message that data is already up to date
+                      ToastManager.show(
+                        context: context,
+                        message: 'Order data is already up to date',
+                        type: ToastType.info,
+                      );
+                    }
+                  },
+                  additionalActions: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.map,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        size: sz(24, seprateTabletSize: 18).sp,
+                      ),
+                      onPressed: () {
+                        order.status != "out_for_delivery"
+                            ? context.push(
+                              AppRoutes.mapDelivery,
+                              extra: {'order': order},
+                            )
+                            : context.push(
+                              AppRoutes.pickupRouteMap,
+                              extra: {'order': order},
+                            );
+                      },
+                      tooltip: AppLocalizations.of(context)!.goToMap,
+                    ),
+                  ],
+                ),
+                body: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: (isTablet() ? 24 : 18).w,
+                        vertical: (isTablet() ? 16 : 18).h,
+                      ),
+                      child:
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Order Status Banner
+                              new_widgets.OrderStatusBanner(
+                                orderStatus: order.status,
+                                getStatusColor: _getStatusColor,
+                                getDisplayStatus: _getDisplayStatus,
+                              ),
+                              SizedBox(height: 24.h),
+                              Column(
+                                children: [
+                                  StatisticsRow(order: order),
+                                  SizedBox(height: 12.h),
+
+                                  // Payment Method Card
+                                  new_widgets.PaymentMethodCard(order: order),
+                                  SizedBox(height: 12.h),
+
+                                  // Order Note Card
+                                  if (order.orderNote != null &&
+                                      order.orderNote != "")
+                                    new_widgets.OrderNoteCard(order: order),
+                                ],
+                              ),
+                              SizedBox(height: 12.h),
+                              new_widgets.OrderItemsSection(
+                                order: order,
+                                isExpanded: _isItemsExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isItemsExpanded = !_isItemsExpanded;
+                                  });
+                                },
+                                itemCards:
+                                    order.items
+                                        ?.map((item) => _buildItemCard(item))
+                                        .toList() ??
+                                    [],
+                                onCollectAll:
+                                    (!widget.from &&
+                                            order.status?.toLowerCase() ==
+                                                'assigned' &&
+                                            !_areAllItemsCollected())
+                                        ? _collectAllItems
+                                        : null,
+                              ),
+                              SizedBox(height: 16.h),
+                              // Earnings Details Section
+                              new_widgets.EarningsDetailsSection(
+                                order: order,
+                                isExpanded: _isEarningsExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isEarningsExpanded = !_isEarningsExpanded;
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 16.h),
+
+                              // Payment Method Section
+                              new_widgets.PaymentInformationSection(
+                                order: order,
+                                isExpanded: _isPaymentExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isPaymentExpanded = !_isPaymentExpanded;
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 16.h),
+
+                              // Pricing Details Section
+                              new_widgets.PricingDetailsSection(
+                                order: order,
+                                isExpanded: _isPricingExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isPricingExpanded = !_isPricingExpanded;
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 16.h),
+
+                              new_widgets.StoreDetailsSection(
+                                order: order,
+                                isExpanded: _isDeliveryExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isDeliveryExpanded = !_isDeliveryExpanded;
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 16.h),
+
+                              // Shipping Details Section
+                              new_widgets.ShippingDetailsSection(
+                                order: order,
+                                isExpanded: _isStoreDetailsExpanded,
+                                onToggle: () {
+                                  setState(() {
+                                    _isStoreDetailsExpanded =
+                                        !_isStoreDetailsExpanded;
+                                  });
+                                },
+                              ),
+
+                              SizedBox(
+                                height: 100.h,
+                              ), // Bottom padding for swipe button
+                            ],
+                          ).fadeAndSlideAnimation(),
+                    ),
+                    // Add confetti widget for celebration at the top center of the screen
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: ConfettiWidget(
+                        confettiController: _confettiController,
+                        blastDirectionality:
+                            BlastDirectionality
+                                .explosive, // Explode from center
+                        blastDirection: 1.57, // Shoot downwards (pi/2)
+                        emissionFrequency: 0.05,
+                        numberOfParticles: 20,
+                        maxBlastForce: 5,
+                        minBlastForce: 2,
+                        gravity: 0.1,
+                        colors: const [
+                          Colors.green,
+                          Colors.blue,
+                          Colors.purple,
+                          Colors.orange,
+                          Colors.red,
+                          Colors.yellow,
+                          Colors.pink,
+                          Colors.teal,
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                bottomSheet: _buildBottomSheet(),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  // Helper method to build the bottom sheet using the reusable widget
+  Widget? _buildBottomSheet() {
+    if (_fetchedOrder?.items == null) {
+      return null;
+    }
+
+    // Check if order status is delivered first - this should take priority
+    if (_fetchedOrder?.status?.toLowerCase() == 'delivered') {
+      return ActionBottomSheet(
+        buttonText: AppLocalizations.of(context)!.allDone,
+        onPressed: () => _showEarningsPopup(),
+        buttonColor: AppColors.primaryColor,
+        textColor: Colors.white,
+      );
+    }
+
+    // Simple logic: check if all items are collected or delivered
+    bool allItemsCollected = _fetchedOrder!.items!.every((item) {
+      // Check if item is collected from API status OR local collection state
+      bool isCollectedFromApi = item.status?.toLowerCase() == 'collected';
+      bool isCollectedFromLocal = _collectedItems.contains(item.id.toString());
+      return isCollectedFromApi || isCollectedFromLocal;
+    });
+
+    bool allItemsDelivered = _fetchedOrder!.items!.every((item) {
+      // Check if item is delivered from API status OR local delivery state
+      bool isDeliveredFromApi = item.status?.toLowerCase() == 'delivered';
+      bool isDeliveredFromLocal = _deliveredItems.contains(item.id.toString());
+      return isDeliveredFromApi || isDeliveredFromLocal;
+    });
+
+    // Check if any items have reached destination and are delivered
+    bool anyItemsReachedDestination = _fetchedOrder!.items!.any(
+      (item) =>
+          item.reachedDestination == true ||
+          item.status?.toLowerCase() == 'delivered',
+    );
+
+    // Simple Case 1: If reachedDestination is false AND all items are collected → Show "View Pickup Route"
+    if (!anyItemsReachedDestination && allItemsCollected) {
+      return ActionBottomSheet(
+        buttonText: AppLocalizations.of(context)!.viewPickupRoute,
+        onPressed: () {
+          context.push(
+            AppRoutes.pickupRouteMap,
+            extra: {
+              'order': _fetchedOrder!,
+              'bloc': context.read<OrderDetailsBloc>(),
+            },
+          );
+        },
+        buttonColor: AppColors.primaryColor,
+        textColor: Colors.white,
+      );
+    }
+
+    // Simple Case 2: If reachedDestination is true AND all items are delivered → Show "All Done"
+    if (anyItemsReachedDestination && allItemsDelivered) {
+      return ActionBottomSheet(
+        buttonText: AppLocalizations.of(context)!.allDone,
+        onPressed: _showEarningsPopup,
+        buttonColor: AppColors.primaryColor,
+        textColor: Colors.white,
+      );
+    }
+
+    return null;
+  }
+
+  bool _areAllItemsCollected() {
+    return OrderService.areAllItemsCollected(_fetchedOrder);
+  }
+
+  int _getTotalItems() {
+    return OrderService.getTotalItems(_fetchedOrder);
+  }
+
+  bool _hasItemsRequiringOtp() {
+    return OrderService.hasItemsRequiringOtp(_fetchedOrder);
+  }
+
+  bool _areAllOtpItemsVerified() {
+    return OrderService.areAllOtpItemsVerified(_fetchedOrder);
+  }
+
+  bool _hasCodItems() {
+    return OrderService.hasCodItems(_fetchedOrder);
+  }
+
+  void _showCodPopup() {
+    DialogService.showCodPopup(context, _fetchedOrder);
+    setState(() {
+      _codPopupShown = true;
+    });
+  }
+
+  void _showCongratulationsGif() {
+    // Use the same earnings popup logic since it's similar
+    _showEarningsPopup();
+  }
+
+  void _collectItem(Items item) {
+    // Collect the item directly (no OTP required)
+    if (item.id != null) {
+      // Set the current processing item ID for tracking
+      setState(() {
+        _processingItemIds.add(item.id.toString());
+      });
+
+      // Dispatch the API call - UI updates will be handled in BlocConsumer
+      context.read<ItemsCollectedBloc>().add(
+        ItemsCollected(item.id.toString()),
+      );
+    }
+  }
+
+  void _deliverItemWithoutOtp(Items item) async {
+    if (item.id != null) {
+      // Set the current processing item ID for tracking
+      setState(() {
+        _processingItemIds.add(item.id.toString());
+      });
+
+      // Remove the force refresh that was causing bottom sheet to disappear
+      // _forceBottomSheetRefresh();
+
+      // Dispatch the API call to mark item as delivered
+      context.read<ItemsCollectedBloc>().add(
+        ItemsDelivered(item.id.toString()),
+      );
+    }
+  }
+
+  void _deliverItem(Items item) async {
+    if (item.id != null) {
+      // Show OTP dialog for delivery
+      final String? otp = await _showDeliveryOtpDialog();
+
+      if (otp != null && otp.isNotEmpty) {
+        // Set the current processing item ID for tracking
+        setState(() {
+          _processingItemIds.add(item.id.toString());
+        });
+
+        // Dispatch the API call - UI updates will be handled in BlocConsumer
+        context.read<ItemsCollectedBloc>().add(
+          ItemsCollectedWithOtp(orderItemId: item.id.toString(), otp: otp),
+        );
+      }
+    }
+  }
+
+  Future<String?> _showDeliveryOtpDialog() async {
+    return await DialogService.showDeliveryOtpDialog(context);
+  }
+
+  void _showCustomerOtpDialog() async {
+    await DialogService.showCustomerOtpDialog(context, _fetchedOrder);
+  }
+
+  Widget _buildItemCard(Items item) {
+    return ItemCardService.buildItemCard(
+      context: context,
+      item: item,
+      from: widget.from,
+      collectedItems: _collectedItems,
+      deliveredItems: _deliveredItems,
+      otpVerifiedItems: _otpVerifiedItems,
+      currentProcessingItemId:
+          _isCollectingAll
+              ? 'collecting_all'
+              : (_processingItemIds.contains(item.id.toString())
+                  ? item.id.toString()
+                  : null),
+      fetchedOrder: _fetchedOrder,
+      onCollect: () => _collectItem(item),
+      onDelivered: () => _deliverItemWithoutOtp(item),
+      onReachedDestination: () => _markItemReachedDestination(item),
+      onItemOtpTap: _showItemOtpDialog,
+    );
+  }
+
+  void _showItemOtpDialog(Items item) async {
+    bool requiresOtp = item.product?.requiresOtp == 1;
+
+    if (!requiresOtp) {
+      _deliverItemWithoutOtp(item);
+      return;
+    }
+
+    // Show simplified OTP dialog
+    final String? otp = await DialogService.showDeliveryOtpDialog(context);
+
+    if (otp != null && otp.isNotEmpty) {
+      setState(() {
+        _processingItemIds.add(item.id.toString());
+      });
+
+      // Show COD popup if payment method is COD and popup hasn't been shown yet
+      if (widget.from && _hasCodItems() && !_codPopupShown) {
+        _showCodPopup();
+      }
+
+      context.read<ItemsCollectedBloc>().add(
+        ItemsCollectedWithOtp(orderItemId: item.id.toString(), otp: otp),
+      );
+    }
+  }
+
+  void _collectAllItems() async {
+    setState(() {
+      _isCollectingAll = true;
+    });
+
+    OrderService.collectAllItems(
+      order: _fetchedOrder,
+      collectedItems: _collectedItems,
+      onItemCollected: (itemId) {
+        context.read<ItemsCollectedBloc>().add(ItemsCollected(itemId));
+      },
+      onError: (errorMessage) {
+        setState(() {
+          _isCollectingAll = false;
+        });
+        ToastManager.show(
+          context: context,
+          message: errorMessage,
+          type: ToastType.error,
+        );
+      },
+    );
+  }
+
+  void _showEarningsPopup() {
+    // Show confetti only if it hasn't been shown for this order yet
+    if (!_hasShownConfetti) {
+      _hasShownConfetti = true;
+      _confettiController.play();
+    }
+
+    final availableOrdersBloc = context.read<AvailableOrdersBloc>();
+    final myOrdersBloc = context.read<MyOrdersBloc>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.r),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle,
+                color: Colors.green,
+                size: (isTablet() ? 48 : 64).r,
+              ),
+              SizedBox(height: 16.h),
+              CustomText(
+                text: AppLocalizations.of(dialogContext)!.orderCompleted,
+                fontSize: sz(20, seprateTabletSize: 16),
+                fontWeight: FontWeight.bold,
+                color: Colors.green,
+              ),
+              SizedBox(height: 8.h),
+              CustomText(
+                text:
+                    AppLocalizations.of(
+                      dialogContext,
+                    )!.allItemsDeliveredSuccessfully,
+                textAlign: TextAlign.center,
+                fontSize: sz(16, seprateTabletSize: 12),
+                color: Colors.grey,
+              ),
+              SizedBox(height: 16.h),
+              Container(
+                padding: EdgeInsets.all(16.w),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8.r),
+                ),
+                child: Column(
+                  children: [
+                    CustomText(
+                      text:
+                          AppLocalizations.of(
+                            dialogContext,
+                          )!.yourEarningsBreakdown,
+                      fontWeight: FontWeight.bold,
+                      fontSize: sz(16, seprateTabletSize: 12),
+                    ),
+                    SizedBox(height: 12.h),
+                    // Breakdown details
+                    if (_fetchedOrder?.earnings?.breakdown != null) ...[
+                      _buildBreakdownRow(
+                        AppLocalizations.of(dialogContext)!.baseFee,
+                        _fetchedOrder?.earnings?.breakdown?.baseFee,
+                      ),
+                      _buildBreakdownRow(
+                        AppLocalizations.of(dialogContext)!.storePickupFee,
+                        _fetchedOrder?.earnings?.breakdown?.perStorePickupFee,
+                      ),
+                      _buildBreakdownRow(
+                        AppLocalizations.of(dialogContext)!.distanceFee,
+                        _fetchedOrder?.earnings?.breakdown?.distanceBasedFee,
+                      ),
+                      _buildBreakdownRow(
+                        AppLocalizations.of(dialogContext)!.orderIncentive,
+                        _fetchedOrder?.earnings?.breakdown?.perOrderIncentive,
+                      ),
+                      Divider(height: 16.h, thickness: 1),
+                    ],
+                    // Total
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        CustomText(
+                          text:
+                              AppLocalizations.of(dialogContext)!.totalEarnings,
+                          fontWeight: FontWeight.bold,
+                          fontSize: sz(16, seprateTabletSize: 12),
+                        ),
+                        CustomText(
+                          text: CurrencyFormatter.formatAmount(
+                            dialogContext,
+                            _fetchedOrder?.earnings?.total ?? 0,
+                          ),
+                          fontSize: sz(20, seprateTabletSize: 16),
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryColor,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 24.h),
+              Row(
+                children: [
+                  Expanded(
+                    child: CustomButton(
+                      text: AppLocalizations.of(dialogContext)!.ok,
+                      onPressed: () {
+                        dialogContext.pop();
+                      },
+                      backgroundColor: AppColors.primaryColor,
+                      textColor: Colors.white,
+                      borderRadius: 8.r,
+                      padding: EdgeInsets.symmetric(vertical: 12.h),
+                      textStyle: TextStyle(
+                        fontSize: sz(16, seprateTabletSize: 12).sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: CustomButton(
+                      text: AppLocalizations.of(dialogContext)!.goToHome,
+                      onPressed: () async {
+                        // Close the dialog first
+                        dialogContext.pop();
+
+                        // Determine the correct tab based on where user came from
+                        int targetTab = _getTargetTabForNavigation();
+
+                        // Refresh the appropriate list based on target tab
+                        if (targetTab == 0) {
+                          // Available Orders tab - refresh available orders list
+                          availableOrdersBloc.add(
+                            AllAvailableOrdersList(forceRefresh: true),
+                          );
+                        } else if (targetTab == 1) {
+                          // My Orders tab - refresh my orders list
+                          myOrdersBloc.add(AllMyOrdersList(forceRefresh: true));
+                        }
+
+                        // Navigate to feed with the appropriate tab
+                        if (dialogContext.mounted) {
+                          dialogContext.go('${AppRoutes.feed}?tab=$targetTab');
+                        }
+                      },
+                      textColor: Colors.black87,
+                      borderRadius: 8.r,
+                      padding: EdgeInsets.symmetric(vertical: 12.h),
+                      textStyle: TextStyle(
+                        fontSize: sz(16, seprateTabletSize: 12).sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBreakdownRow(String label, double? amount) {
+    return UIHelperService.buildBreakdownRow(context, label, amount);
+  }
+
+  String _getStatusText() {
+    return OrderService.getStatusText(context, _fetchedOrder, widget.from);
+  }
+
+  int _getCollectedItemsCount() {
+    return OrderService.getCollectedItemsCount(_fetchedOrder);
+  }
+
+  void _handleButtonPress() {
+    OrderService.handleButtonPress(
+      context: context,
+      order: _fetchedOrder,
+      from: widget.from,
+      onCollectAllItems: _collectAllItems,
+      onShowEarningsPopup: _showEarningsPopup,
+      onNavigateToPickupRoute: () {
+        context.push(
+          AppRoutes.pickupRouteMap,
+          extra: {
+            'order': _fetchedOrder!,
+            'bloc': context.read<OrderDetailsBloc>(),
+          },
+        );
+      },
+      onNavigateToMap: () {},
+    );
+  }
+
+  void _markItemReachedDestination(Items item) {
+    if (item.id != null) {
+      OrderService.markItemReachedDestination(
+        orderId: widget.orderId,
+        itemId: item.id!,
+        onMarkItemReachedDestination: (orderId, itemId) {
+          context.read<OrderDetailsBloc>().add(
+            MarkItemReachedDestination(orderId, itemId),
+          );
+        },
+      );
+    }
+  }
+
+  int _getTargetTabForNavigation() {
+    return OrderService.getTargetTabForNavigation(
+      widget.sourceTab,
+      widget.from,
+    );
+  }
+}
+
+Future<void> _makePhoneCall(String phoneNumber) async {
+  await PhoneService.makePhoneCall(phoneNumber);
+}

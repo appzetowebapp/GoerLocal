@@ -1,0 +1,6 @@
+framework module quill_native_bridge_ios {
+  umbrella header "quill_native_bridge_ios-umbrella.h"
+
+  export *
+  module * { export * }
+}

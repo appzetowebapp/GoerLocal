@@ -1,0 +1,35 @@
+{
+  "name": "quill_native_bridge_ios",
+  "version": "0.0.1",
+  "summary": "A plugin for flutter_quill",
+  "description": "An internal plugin for flutter_quill package to access platform-specific APIs.",
+  "homepage": "https://github.com/FlutterQuill/quill-native-bridge/tree/main/quill_native_bridge",
+  "license": {
+    "type": "MIT",
+    "file": "../LICENSE"
+  },
+  "authors": {
+    "Flutter Quill": "https://github.com/singerdmx/flutter-quill"
+  },
+  "source": {
+    "http": "https://github.com/FlutterQuill/quill-native-bridge/tree/main/quill_native_bridge_ios"
+  },
+  "source_files": "quill_native_bridge_ios/Sources/quill_native_bridge_ios/**/*.swift",
+  "dependencies": {
+    "Flutter": []
+  },
+  "platforms": {
+    "ios": "12.0"
+  },
+  "pod_target_xcconfig": {
+    "DEFINES_MODULE": "YES",
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "i386"
+  },
+  "swift_versions": "5.0",
+  "resource_bundles": {
+    "quill_native_bridge_ios_privacy": [
+      "quill_native_bridge_ios/Sources/quill_native_bridge_ios/Resources/PrivacyInfo.xcprivacy"
+    ]
+  },
+  "swift_version": "5.0"
+}

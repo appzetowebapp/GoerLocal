@@ -1,0 +1,85 @@
+name: hyper_local
+description: "Hyper Local"
+publish_to: 'none'
+
+# version: 8.4.1+4
+version: 9.5.2+2
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  go_router: ^17.2.1
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.7
+  dio: ^5.8.0+1
+  fluttertoast: ^8.2.12
+  intl_phone_field: ^3.2.0
+  hive_flutter: ^1.1.0
+  file_picker: ^10.2.0
+  country_picker: ^2.0.27
+  permission_handler: ^12.0.1
+  animated_toggle_switch: ^0.8.5
+  location: ^8.0.1
+  flutter_swipe_button: ^2.1.3
+  url_launcher: ^6.2.5
+  flutter_map: ^6.1.0
+  flutter_background_service: ^5.0.5
+  latlong2: ^0.9.0
+  flutter_polyline_points: ^2.1.0
+  share_plus: ^12.0.2
+  flutter_styled_toast: ^2.2.1
+  geolocator: ^13.0.0
+  fl_chart: ^0.68.0
+  intl: ^0.20.2
+  flutter_screenutil: ^5.9.0
+  flutter_html: ^3.0.0-beta.2
+  confetti: ^0.7.0
+  firebase_core: ^4.6.0
+  firebase_messaging: ^16.1.1
+  flutter_local_notifications: ^19.5.0
+  connectivity_plus: ^6.0.5
+  lottie: ^3.1.0
+  flutter_tabler_icons: ^1.43.0
+  firebase_auth: ^6.1.4
+  pin_code_fields: ^8.0.1
+  cached_network_image: ^3.4.1
+  get_it: ^7.7.0
+  flutter_animate: ^4.5.2
+  flutter_launcher_icons: ^0.14.4 
+  upgrader: ^12.5.0
+   
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/png/logo1.png"
+  adaptive_icon_background: "#2546c4"
+  adaptive_icon_foreground: "assets/png/logo1.png"
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  generate: true
+
+  uses-material-design: true
+
+  assets:
+    - assets/
+    - assets/png/
+    - assets/lottie/
+    - assets/lottie/Food Courier.json
+    - assets/lottie/NotDataFound.json
+    - assets/refer_earn/
+    - assets/location_disclose/
+
