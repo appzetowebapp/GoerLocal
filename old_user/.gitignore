@@ -40,21 +40,9 @@
 /build/
 
 # Android/Gradle specific ignores
-.gradle/
-**/android/.gradle/
-**/android/app/build/
-**/android/build/
-**/android/captures/
-**/android/gradle/
-**/android/.cxx/
 
 # iOS specific ignores
-**/ios/.symlinks/
-**/ios/Pods/
-**/ios/Flutter/flutter_assets/
-**/ios/Runner/GeneratedPluginRegistrant.*
-**/ios/Flutter/ephemeral/
-**/ios/.extensions/
+
 
 # Web related
 .node_modules/

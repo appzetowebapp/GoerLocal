@@ -20,32 +20,9 @@
 /build/
 
 # Android-specific
-android/app/local.properties
-android/key.properties
-android/app/src/main/res/values/strings.xml
-android/.gradle/
-android/app/build/
-android/captures/
-android/app/google-services.json
-android/app/key.properties
+
 
 # iOS-specific
-ios/.symlinks/
-ios/Pods/
-ios/Runner/GeneratedPluginRegistrant.h
-ios/Runner/GeneratedPluginRegistrant.m
-ios/Runner/GeneratedPluginRegistrant.swift
-ios/Flutter/Flutter.app
-ios/Flutter/Flutter.framework
-ios/Flutter/Generated.xcconfig
-ios/Flutter/flutter_export_environment.sh
-ios/Flutter/App.framework
-ios/Flutter/Runner.app
-ios/Flutter/Runner.ipa
-ios/Flutter/Runner.xcarchive
-ios/Flutter/app.ipa
-ios/.tags*
-ios/Runner/GoogleService-Info.plist
 
 # macOS-specific
 macos/Flutter/ephemeral/
