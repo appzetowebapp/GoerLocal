@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "55425028463",
+    "firebase_url": "https://goerlocaldelivery-default-rtdb.firebaseio.com",
+    "project_id": "goerlocaldelivery",
+    "storage_bucket": "goerlocaldelivery.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55425028463:android:d9ef3a01a5a428578ed89a",
+        "android_client_info": {
+          "package_name": "com.goerlocal.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhhD-1YQhj54gsRl5_L9KRnz_-gTbr4Kg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55425028463:android:4a9f7cdfd58244838ed89a",
+        "android_client_info": {
+          "package_name": "com.goerlocal.ordering"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhhD-1YQhj54gsRl5_L9KRnz_-gTbr4Kg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55425028463:android:3649e0a24b9af7df8ed89a",
+        "android_client_info": {
+          "package_name": "com.goerlocal.partner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhhD-1YQhj54gsRl5_L9KRnz_-gTbr4Kg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
